@@ -1,0 +1,190 @@
+---
+title: "Impact of major storms and weather events in the United States analysis"
+author: "Charles"
+date: "July 21, 2017"
+output: 
+        html_document:
+                keep_md: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+- Subset dataset by certain columns that we need.
+- Sum up fatalities and injuries for every event type and plot bar chart to see
+top ten events that are most harmful with respect to population health.
+- Transform the magnitude of damage into corresponding scale and compute the property
+and crop damage.
+- Sum up property and crop damage for every event type and plot bar chart to see
+top ten events that have the greatest economic consequences.
+
+## Data Processing
+Firstly we download data and read data.
+
+```{r dataProcessing, cache=TRUE}
+file.url="https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+file.name="repdata%2Fdata%2FStormData.csv.bz2"
+if (!file.exists("repdata%2Fdata%2FStormData.csv.bz2")){
+        download.file(file.url,file.name)
+}
+dataStorm <- read.csv("repdata%2Fdata%2FStormData.csv.bz2", na.strings = "NA")
+```
+
+Set up libraries:
+```{r libraries, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+```
+
+According to our question, we only need columns corresponding to event types,
+population health and economic consequences.
+So we subset the dataset using `EVTYPE,FATALITIES,INJURIES,PROPDMG,PROPDMGEXP,CROPDMG,CROPDMGEXP`:
+
+```{r subset}
+columnsKeep <- c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP")
+dataSub <- select(dataStorm, columnsKeep)
+```
+
+Then we need to transform the magnitude of damage into corresponding scale.
+`H` stands for hundreds, `K` for thousands, `M` for millions, `B` for billions.
+
+```{r transform}
+indexProperty <- NA
+index <- grep("H|h",dataSub$PROPDMGEXP)
+indexProperty[index] <- 1e2
+index <- grep("K|k",dataSub$PROPDMGEXP)
+indexProperty[index] <- 1e3
+index <- grep("M|m",dataSub$PROPDMGEXP)
+indexProperty[index] <- 1e6
+index <- grep("B|b",dataSub$PROPDMGEXP)
+indexProperty[index] <- 1e9
+indexProperty[is.na(indexProperty)] <- 0
+
+indexCorp <- NA
+index <- grep("H|h",dataSub$CROPDMGEXP)
+indexCorp[index] <- 1e2
+index <- grep("K|k",dataSub$CROPDMGEXP)
+indexCorp[index] <- 1e3
+index <- grep("M|m",dataSub$CROPDMGEXP)
+indexCorp[index] <- 1e6
+index <- grep("B|b",dataSub$CROPDMGEXP)
+indexCorp[index] <- 1e9
+indexCorp[is.na(indexCorp)] <- 0
+```
+
+where we get `indexProperty` for scale of property damage and
+`indexCorp` for scale of crop damage.
+Then we compute the actual property damage and crop damage.
+Also we get total population health impact by sum fatalities and injuries.
+
+```{r damage}
+dataRecal <- dataSub %>%
+        mutate(totalInjury = FATALITIES+INJURIES) %>%
+        mutate(indexOfProperty = indexProperty) %>%
+        mutate(indexOfCrop = indexCorp) %>%
+        mutate(totalProperty = PROPDMG * indexOfProperty) %>%
+        mutate(totalCrop = CROPDMG * indexOfCrop) %>%
+        mutate(totalDamage = totalProperty + totalCrop)
+head(dataRecal)
+```
+
+## Results
+### Question 1
+For question 1, we sum up total fatalities and total injuries for every event type.
+Show the results in descending order:
+
+```{r q1}
+dataForHealth <- dataRecal %>%
+        group_by(EVTYPE) %>%
+        summarise(numFatalities = sum(FATALITIES),
+                  numInjuries = sum(INJURIES),
+                  numTotal = sum(totalInjury)) %>%
+        arrange(desc(numTotal))
+dataForHealth <- as.data.frame(dataForHealth)
+head(dataForHealth)
+```
+
+Then we use bar chart to plot top 10 event types that are most harmful with respect 
+to population health:
+
+```{r plot1}
+g1 <- ggplot(head(dataForHealth,10), aes(x=reorder(EVTYPE,numFatalities),y=numFatalities))
+q1 <- g1 + geom_bar(stat = "identity") +
+        coord_flip() +
+        ggtitle("Population health impact - Top 10") +
+        ylab("Number of fatalities") +
+        xlab("Type of events")
+g2 <- ggplot(head(dataForHealth,10), aes(x=reorder(EVTYPE,numInjuries),y=numInjuries))
+q2 <- g2 + geom_bar(stat = "identity") +
+        coord_flip() +
+        ylab("Number of injuries") +
+        xlab("Type of events")
+grid.arrange(q1,q2,nrow=2)
+```
+
+As we can see above, tornado are most harmful with respect to population health.
+
+### Question 2
+For question 2, we sum up property damage and crop damage according to different event
+types:
+
+```{r q2}
+dataForEco <- dataRecal %>%
+        group_by(EVTYPE) %>%
+        summarise(numProperty = sum(totalProperty),
+                  numCrop = sum(totalCrop),
+                  numTotal = sum(totalDamage)) %>%
+        arrange(desc(numTotal))
+dataForEco <- as.data.frame(dataForEco)
+head(dataForEco)
+```
+
+Then use bar chart to plot the top 10 event types that have the greatest economic 
+consequences:
+```{r plot2}
+g1 <- ggplot(head(dataForEco,10), aes(x=reorder(EVTYPE,numProperty),y=numProperty))
+q1 <- g1 + geom_bar(stat = "identity") +
+        coord_flip() +
+        ggtitle("Economic consequences - Top 10") +
+        ylab("Property damage") +
+        xlab("Type of events")
+g2 <- ggplot(head(dataForEco,10), aes(x=reorder(EVTYPE,numCrop),y=numCrop))
+q2 <- g2 + geom_bar(stat = "identity") +
+        coord_flip() +
+        ylab("Crop damage") +
+        xlab("Type of events")
+grid.arrange(q1,q2,nrow=2)
+```
+
+As we can see above, flood and drought have the greatest economic consequences.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
